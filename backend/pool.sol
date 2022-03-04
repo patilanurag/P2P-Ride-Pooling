@@ -23,11 +23,14 @@ contract RidePool{
         uint idr;
         userType uType;
         address riderAddress;
+        address payable driverAssigned;
         coordinates source;
         coordinates destination;
         bool pickedUp;
         bool droppedOff;
         bool allowPooling;
+        uint256 toPay;
+        bool paidToDriver;
     }
 
     struct driver {
@@ -36,14 +39,18 @@ contract RidePool{
         address payable driverAddress;
         coordinates currentLocation;
         bool occupied;
+        uint fare;
+        bool receivedFromRider;
     }
     
 
     mapping(address=>rider) riderAddressMapping;
     mapping(address=>driver) driverAddressMapping;
     // mapping(address=>driver) driverAddressMapping;
-    address [] public driversList;
+    address [] driversList;
     // address [] public ridersList;
+    
+    // mapping(coordinates=>uint256) prices;
 
     function setRider(int256 slat, int256 slong, int256 dlat, int256 dlong) public {
         // set information related to the rider
@@ -58,6 +65,7 @@ contract RidePool{
         riderAddressMapping[msg.sender].pickedUp = false;
         riderAddressMapping[msg.sender].droppedOff = false;
         riderAddressMapping[msg.sender].allowPooling = false;
+        riderAddressMapping[msg.sender].paidToDriver = false;
     }
 
     function setDriver(int256 clat, int256 clong) public {
@@ -69,16 +77,25 @@ contract RidePool{
         driverAddressMapping[msg.sender].currentLocation.latitude = clat;
         driverAddressMapping[msg.sender].currentLocation.longitude = clong;
         driverAddressMapping[msg.sender].occupied = false;
+        // driverAddressMapping[msg.sender].receivedFromRider = false;
 
         driversList.push(msg.sender);
     }
 
-    function selectRide() public {
-        address closestDriver = findClosest(msg.sender);
-        driverAddressMapping[closestDriver].occupied = true;
+    function selectRide() public payable{
+        require(msg.value > 0);
+        address closestDriver;
+        int256 dist;
+        (closestDriver, dist) = findClosest(msg.sender);
+        riderAddressMapping[msg.sender].driverAssigned = payable(closestDriver);
+        driverAddressMapping[riderAddressMapping[msg.sender].driverAssigned].fare = msg.value;
+        // fare = dist + 10;
+        // msg.value = fare;
+        riderAddressMapping[msg.sender].toPay = msg.value;
+        // driverAddressMapping[closestDriver].occupied = true;
     }
 
-    function findClosest(address riderAddressParam) view private returns (address) {
+    function findClosest(address riderAddressParam) view private returns (address, int256) {
         uint256 dListLength = driversList.length;
 
         int256 rSLat = riderAddressMapping[riderAddressParam].source.latitude;
@@ -102,7 +119,7 @@ contract RidePool{
                 }
             }
         }
-        return closestDriver;
+        return (closestDriver, compare);
     }
 
     function manhattanDistance(int256 slat, int256 slong, int256 dlat, int256 dlong) pure private returns (int256){
@@ -113,4 +130,20 @@ contract RidePool{
         return latF+longF;
     }
 
+    function startRide() public {
+        riderAddressMapping[msg.sender].pickedUp = true;
+        driverAddressMapping[riderAddressMapping[msg.sender].driverAssigned].occupied = true;
+    }
+
+    function droppedAtDest() public {
+        riderAddressMapping[msg.sender].droppedOff = true;
+        riderAddressMapping[msg.sender].pickedUp = false;
+        driverAddressMapping[riderAddressMapping[msg.sender].driverAssigned].occupied = false;
+
+        payTheDriver();
+    }
+
+    function payTheDriver() private {
+        riderAddressMapping[msg.sender].driverAssigned.transfer(riderAddressMapping[msg.sender].toPay);
+    }
 }
