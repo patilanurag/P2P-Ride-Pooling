@@ -41,12 +41,14 @@ contract RidePool{
         bool occupied;
         uint fare;
         bool receivedFromRider;
+        uint poolingLimit;
     }
     
 
     mapping(address=>rider) riderAddressMapping;
     mapping(address=>driver) driverAddressMapping;
-    // mapping(address=>driver) driverAddressMapping;
+    mapping(string=>mapping(string=>string[])) SDAccomodatingLocations; // All locations available from a source to a destination
+    mapping(string=>mapping(string=>address)) OccupiedCarpoolDrivers;
     address [] driversList;
     // address [] public ridersList;
     
@@ -77,6 +79,7 @@ contract RidePool{
         driverAddressMapping[msg.sender].currentLocation.latitude = clat;
         driverAddressMapping[msg.sender].currentLocation.longitude = clong;
         driverAddressMapping[msg.sender].occupied = false;
+        driverAddressMapping[msg.sender].poolingLimit = 2;
         // driverAddressMapping[msg.sender].receivedFromRider = false;
 
         driversList.push(msg.sender);
@@ -95,7 +98,7 @@ contract RidePool{
         // driverAddressMapping[closestDriver].occupied = true;
     }
 
-    function findClosest(address riderAddressParam) view private returns (address, int256) {
+    function findClosest(address riderAddressParam) private returns (address, int256) {
         uint256 dListLength = driversList.length;
 
         int256 rSLat = riderAddressMapping[riderAddressParam].source.latitude;
@@ -107,8 +110,8 @@ contract RidePool{
         for (uint256 i = 0; i < dListLength; i++){
             address currDriverAddress = driversList[i];
             
-            if (driverAddressMapping[currDriverAddress].occupied == false){
-
+            // if (driverAddressMapping[currDriverAddress].occupied == false){
+            if(driverAddressMapping[currDriverAddress].poolingLimit > 0){  // Pooling should be availabe in terms of count
                 int256 dCLat = driverAddressMapping[currDriverAddress].currentLocation.latitude;
                 int256 dCLong =  driverAddressMapping[currDriverAddress].currentLocation.longitude;
                 int256 distRD = manhattanDistance(rSLat, rSLong, dCLat, dCLong);
@@ -119,6 +122,7 @@ contract RidePool{
                 }
             }
         }
+        driverAddressMapping[closestDriver].poolingLimit -= 1;
         return (closestDriver, compare);
     }
 
