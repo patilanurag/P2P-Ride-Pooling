@@ -45,19 +45,25 @@ contract RidePool{
         uint poolingLimit;
     }
     
+    struct sourceDestination {
+        string source;
+        string destination;
+    }
 
     mapping(address=>rider) riderAddressMapping;
     mapping(address=>driver) driverAddressMapping;
     mapping(string=>mapping(string=>string[])) SDAccomodatingLocations; // All locations available from a source to a destination
-    mapping(string=>mapping(string=>address)) OccupiedCarpoolDrivers;
+    mapping(address=>sourceDestination) ActiveRidesForPooling; // rider->[driver->(source, destination)]
     address [] driversList;
     address [] ridersList;
     
     // mapping(driver=>uint256) prices; // Error: Only elementary types, user defined value types, contract types or enums are allowed as mapping keys.
 
+    // set information related to the rider
     function setRider(int256 slat, int256 slong, int256 dlat, int256 dlong) public {
-        // set information related to the rider
+        
         require(!checkDriverinList(msg.sender)); // Rider's address should not be in driver's list
+
         riderCounter++;
         riderAddressMapping[msg.sender].idr = riderCounter;
         riderAddressMapping[msg.sender].uType = userType.RIDER;
@@ -73,18 +79,18 @@ contract RidePool{
         ridersList.push(msg.sender);
     }
 
+    // set information related to the driver
     function setDriver(int256 clat, int256 clong) public {
-        // set information related to the driver
+        
         require(!checkRiderinList(msg.sender)); // Driver's address should not be in riders list
+
         driverCounter++;
         driverAddressMapping[msg.sender].idd = driverCounter;
         driverAddressMapping[msg.sender].uType = userType.DRIVER;
         driverAddressMapping[msg.sender].driverAddress = payable(msg.sender);
         driverAddressMapping[msg.sender].currentLocation.latitude = clat;
         driverAddressMapping[msg.sender].currentLocation.longitude = clong;
-        // driverAddressMapping[msg.sender].occupied = false;
         driverAddressMapping[msg.sender].poolingLimit = 2;
-        // driverAddressMapping[msg.sender].receivedFromRider = false;
 
         driversList.push(msg.sender);
     }
@@ -118,25 +124,57 @@ contract RidePool{
         driverAddressMapping[msg.sender].allowPooling = tf;
     }
 
+    // select ride for the rider
+
     function selectRide() public payable{
-        require(msg.value > 0);
+        // require(msg.value > 0); // fare for travelling
+        require(checkRiderinList(msg.sender));  // The caller of this function must be a rider
         address closestDriver;
         uint256 dist;
         
         (closestDriver, dist) = assignExistingRide(msg.sender);
+        
+        
+        if (riderAddressMapping[msg.sender].allowPooling) {
+            /*
+                1. if there are active rides for pooling
+                    => if yes, check for which source and destination combination the ride fits 
+                    => if not, set a new ride
+                2. if there are no active rides for pooling
+                    => set a new ride
+            */
+            // address [] storage availableDriverPools; // 'storage' -> preserves data across function call
+            address [] memory availableDriverPools; // 'memory' -> temporary storage unit; doesn't preserve data across function calls
 
-        // if ( ) {
+            for (uint i = 0; i<ridersList.length; i++) {
 
-        // }
-        // else {
-        //     (closestDriver, dist) = assignNewRide(msg.sender);
-        // }
+                address currentRider = ridersList[i];
+                // if (currentRider != msg.sender) {
+                //     if(ActiveRidesForPooling[currentRider] != address(0x0)) {
+
+                //     }
+                    // else {
+                    //     (closestDriver, dist) = assignNewRide(msg.sender);
+                    //     // set fares here
+                    // }
+                // }
+            }
+
+
+        }
+        else {
+            (closestDriver, dist) = assignRide(msg.sender);
+
+            // set fare here
+        }
 
 
         // set rider and attributes when s/he is picked up by the driver
         riderAddressMapping[msg.sender].driverAssigned = payable(closestDriver);
         riderAddressMapping[msg.sender].pickedUp = true;
         driverAddressMapping[closestDriver].occupied = true;
+
+        
         
         // set trip fare for driver and rider
         driverAddressMapping[riderAddressMapping[msg.sender].driverAssigned].fare = msg.value;
@@ -144,47 +182,16 @@ contract RidePool{
     }
 
     function assignExistingRide(address riderAddressParam) private returns (address, uint256){
-        uint256 dListLength = driversList.length;
-
-        int256 rSLat = riderAddressMapping[riderAddressParam].source.latitude;
-        int256 rSLong = riderAddressMapping[riderAddressParam].source.longitude;
-
-        uint256 compare = 99999999999999;
-        address closestDriver = 0x0000000000000000000000000000000000000000;
-
-        /* A. If a ride exists in SDAccomodatingLocations
-                1. if rider allows pooling but the driver does not, or if driver allows pooling but the driver does not or both do not allow pooling
-                => assign a new rider from a list of available riders (i.e. occupied == false)
-                2. else if both rider and driver allow pooling
-            B. Else, assign a new driver
-        */
-
-        for (uint256 i = 0; i < dListLength; i++){
-            address currDriverAddress = driversList[i];
-            
-            // if (driverAddressMapping[currDriverAddress].occupied == false){
-            if(driverAddressMapping[currDriverAddress].poolingLimit > 0){  // Pooling should be availabe in terms of count
-                int256 dCLat = driverAddressMapping[currDriverAddress].currentLocation.latitude;
-                int256 dCLong =  driverAddressMapping[currDriverAddress].currentLocation.longitude;
-                uint256 distRD = manhattanDistance(rSLat, rSLong, dCLat, dCLong);
-
-                if (compare > distRD){
-                    compare = distRD;
-                    closestDriver = currDriverAddress;
-                }
-            }
-        }
-        driverAddressMapping[closestDriver].poolingLimit -= 1;
-        return (closestDriver, compare);
+        
     }
 
-    function assignNewRide(address riderAddressParam) private returns (address, uint256) {
+    function assignRide(address riderAddressParam) private returns (address, uint256) {
         uint256 dListLength = driversList.length;
 
         int256 rSLat = riderAddressMapping[riderAddressParam].source.latitude;
         int256 rSLong = riderAddressMapping[riderAddressParam].source.longitude;
 
-        uint256 compare = 99999999999999;
+        uint256 compareDistance = 99999999999999;
         address closestDriver = 0x0000000000000000000000000000000000000000;
 
         for (uint256 i = 0; i < dListLength; i++){
@@ -195,14 +202,14 @@ contract RidePool{
                 int256 dCLong =  driverAddressMapping[currDriverAddress].currentLocation.longitude;
                 uint256 distRD = manhattanDistance(rSLat, rSLong, dCLat, dCLong);
 
-                if (compare > distRD){
-                    compare = distRD;
+                if (compareDistance > distRD){
+                    compareDistance = distRD;
                     closestDriver = currDriverAddress;
                 }
             }
         }
         driverAddressMapping[closestDriver].poolingLimit -= 1;
-        return (closestDriver, compare);
+        return (closestDriver, compareDistance);
     }
 
     function manhattanDistance(int256 slat, int256 slong, int256 dlat, int256 dlong) pure private returns (uint256){
